@@ -1,0 +1,187 @@
+# backend_fin.py
+
+import psycopg2
+from psycopg2 import sql
+
+# --- CONFIGURATION (UPDATE WITH YOUR POSTGRESQL DETAILS) ---
+DB_NAME = "Fitness Tracker Application"
+DB_USER = "Postgres"
+DB_PASS = "Anusha@369"
+DB_HOST = "localhost"
+DB_PORT = "5432"
+
+def get_connection():
+    """Establishes and returns a connection to the PostgreSQL database."""
+    try:
+        conn = psycopg2.connect(
+            dbname=DB_NAME,
+            user=DB_USER,
+            password=DB_PASS,
+            host=DB_HOST,
+            port=DB_PORT
+        )
+        return conn
+    except psycopg2.OperationalError as e:
+        print(f"Error connecting to database: {e}")
+        return None
+
+# --- CRUD PRINCIPLES: CREATE ---
+def create_tables():
+    """Creates the necessary tables for the fitness tracker application."""
+    conn = get_connection()
+    if conn is None:
+        return
+    
+    with conn.cursor() as cur:
+        # SQL command to create the Users table
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS users (
+                user_id SERIAL PRIMARY KEY,
+                name VARCHAR(100) NOT NULL,
+                email VARCHAR(150) UNIQUE NOT NULL
+            );
+        """)
+        
+        # SQL command to create the Activities table (like 'Revenue' in your old schema)
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS activities (
+                activity_id SERIAL PRIMARY KEY,
+                user_id INT NOT NULL,
+                activity_type VARCHAR(50) NOT NULL,
+                duration_minutes INT NOT NULL,
+                calories_burned DECIMAL(10, 2) NOT NULL,
+                activity_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
+            );
+        """)
+
+        # SQL command to create the Nutrition table (like 'Expense' in your old schema)
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS nutrition (
+                nutrition_id SERIAL PRIMARY KEY,
+                user_id INT NOT NULL,
+                meal_type VARCHAR(50) NOT NULL,
+                calories_consumed DECIMAL(10, 2) NOT NULL,
+                meal_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
+            );
+        """)
+
+        # Insert a sample user if one doesn't exist
+        cur.execute("""
+            INSERT INTO users (name, email) VALUES ('John Doe', 'john.doe@example.com') ON CONFLICT (email) DO NOTHING;
+        """)
+
+        # Insert some sample data for demonstration
+        cur.execute("""
+            INSERT INTO activities (user_id, activity_type, duration_minutes, calories_burned, activity_date) VALUES
+            (1, 'Running', 30, 350.5, '2024-05-18 10:00:00'),
+            (1, 'Cycling', 45, 450.0, '2024-05-17 08:30:00'),
+            (1, 'Strength Training', 60, 250.0, '2024-05-16 18:00:00');
+        """)
+        cur.execute("""
+            INSERT INTO nutrition (user_id, meal_type, calories_consumed, meal_date) VALUES
+            (1, 'Breakfast', 600.0, '2024-05-18 08:00:00'),
+            (1, 'Lunch', 850.0, '2024-05-17 12:30:00'),
+            (1, 'Dinner', 700.0, '2024-05-16 19:00:00');
+        """)
+        
+    conn.commit()
+    conn.close()
+
+# --- CRUD PRINCIPLES: READ & FILTERING ---
+def get_all_records(record_type='All', sort_by='activity_date'):
+    """
+    Fetches all records (activities and nutrition) and can filter by type and sort.
+    'record_type' can be 'All', 'Calories Burned' (Activities), or 'Calories Consumed' (Nutrition).
+    'sort_by' can be 'date' or 'amount'.
+    """
+    conn = get_connection()
+    if conn is None:
+        return []
+
+    query = ""
+    # Use a subquery to combine both tables and add a 'type' column for filtering
+    combined_query = """
+        SELECT activity_date AS record_date, 'Calories Burned' AS record_type, calories_burned AS amount, activity_type as description
+        FROM activities
+        UNION ALL
+        SELECT meal_date AS record_date, 'Calories Consumed' AS record_type, calories_consumed AS amount, meal_type as description
+        FROM nutrition
+    """
+
+    where_clause = ""
+    if record_type != 'All':
+        where_clause = sql.SQL(" WHERE record_type = %s")
+
+    order_by_clause = "ORDER BY record_date DESC"
+    if sort_by == 'amount':
+        order_by_clause = "ORDER BY amount DESC"
+
+    try:
+        with conn.cursor() as cur:
+            # Construct the final query
+            final_query = sql.SQL(f"SELECT * FROM ({combined_query}) AS combined {where_clause} {order_by_clause};")
+            
+            if record_type != 'All':
+                cur.execute(final_query, (record_type,))
+            else:
+                cur.execute(final_query)
+            
+            rows = cur.fetchall()
+            # Get column names from cursor description
+            columns = [desc[0] for desc in cur.description]
+            return [dict(zip(columns, row)) for row in rows]
+    except (psycopg2.Error, ValueError) as e:
+        print(f"Error fetching data: {e}")
+        return []
+    finally:
+        conn.close()
+
+# --- CRUD PRINCIPLES: AGGREGATION & BUSINESS INSIGHTS ---
+def get_aggregate_data():
+    """Fetches key aggregated data for business insights."""
+    conn = get_connection()
+    if conn is None:
+        return {}
+
+    try:
+        with conn.cursor() as cur:
+            # COUNT: Total number of records
+            cur.execute("SELECT COUNT(*) FROM (SELECT * FROM activities UNION ALL SELECT * FROM nutrition) AS total_records;")
+            total_count = cur.fetchone()[0]
+
+            # SUM (Calories Burned): Total "Revenue"
+            cur.execute("SELECT SUM(calories_burned) FROM activities;")
+            total_burned = cur.fetchone()[0]
+
+            # SUM (Calories Consumed): Total "Expense"
+            cur.execute("SELECT SUM(calories_consumed) FROM nutrition;")
+            total_consumed = cur.fetchone()[0]
+
+            # AVG: Average Calories Burned
+            cur.execute("SELECT AVG(calories_burned) FROM activities;")
+            avg_burned = cur.fetchone()[0]
+
+            # MIN: Minimum Calories Burned
+            cur.execute("SELECT MIN(calories_burned) FROM activities;")
+            min_burned = cur.fetchone()[0]
+
+            # MAX: Maximum Calories Burned
+            cur.execute("SELECT MAX(calories_burned) FROM activities;")
+            max_burned = cur.fetchone()[0]
+
+            return {
+                'total_count': total_count if total_count is not None else 0,
+                'total_burned': total_burned if total_burned is not None else 0,
+                'total_consumed': total_consumed if total_consumed is not None else 0,
+                'avg_burned': avg_burned if avg_burned is not None else 0,
+                'min_burned': min_burned if min_burned is not None else 0,
+                'max_burned': max_burned if max_burned is not None else 0,
+            }
+
+    except psycopg2.Error as e:
+        print(f"Error fetching aggregate data: {e}")
+        return {}
+    finally:
+        conn.close()
