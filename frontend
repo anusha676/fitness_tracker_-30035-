@@ -1,0 +1,71 @@
+# frontend_fin.py
+
+import streamlit as st
+import pandas as pd
+from backend import get_all_records, get_aggregate_data, create_tables
+
+# --- SETUP AND INITIALIZATION ---
+# Set the page configuration for a wider layout
+st.set_page_config(page_title="Personal Fitness Tracker", layout="wide")
+
+# Call the function to create tables and insert sample data
+create_tables()
+
+st.title("🏃 Personal Fitness & Nutrition Tracker")
+st.subheader("Your journey to a healthier you, at a glance.")
+
+# --- BUSINESS INSIGHTS SECTION ---
+# This section uses the principles of aggregation (COUNT, SUM, AVG, MIN, MAX)
+st.markdown("---")
+st.header("📊 Business Insights")
+st.write("Here are some key statistics about your fitness journey.")
+
+# Fetch aggregate data
+insights = get_aggregate_data()
+
+# Use columns for a clean, side-by-side layout
+col1, col2, col3 = st.columns(3)
+with col1:
+    st.metric(label="Total Records", value=insights.get('total_count'))
+    st.metric(label="Total Calories Consumed", value=f"{insights.get('total_consumed'):,.2f} kcal")
+with col2:
+    st.metric(label="Total Calories Burned", value=f"{insights.get('total_burned'):,.2f} kcal")
+    st.metric(label="Min Calories Burned", value=f"{insights.get('min_burned'):,.2f} kcal")
+with col3:
+    st.metric(label="Average Calories Burned", value=f"{insights.get('avg_burned'):,.2f} kcal")
+    st.metric(label="Max Calories Burned", value=f"{insights.get('max_burned'):,.2f} kcal")
+
+# --- CRUD PRINCIPLES: READ, FILTERING & SORTING ---
+st.markdown("---")
+st.header("🏋️ Activity & Nutrition Log")
+
+# Filtering and Sorting UI
+col_filter, col_sort = st.columns([2, 1])
+with col_filter:
+    filter_type = st.selectbox(
+        "Filter by Record Type:",
+        options=["All", "Calories Burned", "Calories Consumed"],
+        key="filter_type"
+    )
+
+with col_sort:
+    sort_by = st.selectbox(
+        "Sort by:",
+        options=["Date", "Amount"],
+        key="sort_by"
+    )
+
+# Fetch the data based on user selections
+# The backend function handles both filtering and sorting
+records = get_all_records(
+    record_type=filter_type,
+    sort_by='amount' if sort_by == 'Amount' else 'date'
+)
+
+# Convert the list of dictionaries to a DataFrame for easy display
+df = pd.DataFrame(records)
+
+if not df.empty:
+    st.dataframe(df, use_container_width=True)
+else:
+    st.info("No records to display based on your selections.")
